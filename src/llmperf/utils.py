@@ -60,8 +60,9 @@ def randomly_sample_sonnet_lines_prompt(
     prompt_tokens_mean: int = 550,
     prompt_tokens_stddev: int = 250,
     expect_output_tokens: int = 150,
-    tokenizer = AutoTokenizer.from_pretrained("./tokenizer")
 ) -> Tuple[str, int]:
+    
+    tokenizer = AutoTokenizer.from_pretrained("./tokenizer")
     """Generate a prompt that randomly samples lines from a the shakespeare sonnet at sonnet.txt.
 
     Args:
