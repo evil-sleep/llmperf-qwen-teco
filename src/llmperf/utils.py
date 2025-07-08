@@ -6,21 +6,11 @@ import subprocess
 import time
 from typing import Any, Dict, Tuple
 
-from transformers import AutoTokenizer
+from transformers import LlamaTokenizerFast
 
 
 RESULTS_VERSION = "2023-08-31"
 
-tokenizer_path = "/mnt/Qwen2.5-7B-Instruct"
-
-try:
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
-except Exception as e:
-    class MockTokenizer:
-        def encode(self, text): return [0] * len(text.split())
-        def decode(self, tokens): return " ".join(["token"] * len(tokens))
-    tokenizer = MockTokenizer()
-    print(f"Токенизатор не найден по пути {tokenizer_path}, использую mock: {e}")
 
 class LLMPerfResults:
     def __init__(
@@ -68,18 +58,28 @@ def upload_to_s3(results_path: str, s3_path: str) -> None:
 
 def randomly_sample_sonnet_lines_prompt(
     prompt_tokens_mean: int = 550,
-    prompt_tokens_stddev: int = 150,
+    prompt_tokens_stddev: int = 250,
     expect_output_tokens: int = 150,
+    tokenizer = LlamaTokenizerFast.from_pretrained(
+        "hf-internal-testing/llama-tokenizer")
 ) -> Tuple[str, int]:
-    """Generate a prompt that samples lines from Shakespeare sonnet.txt.
+    """Generate a prompt that randomly samples lines from a the shakespeare sonnet at sonnet.txt.
 
     Args:
-        prompt_tokens_mean: Mean number of input tokens for the prompt.
-        prompt_tokens_stddev: Standard deviation of input token count.
-        expect_output_tokens: Expected output token length.
+        prompt_length_mean: The mean length of the prompt to generate.
+        prompt_len_stddev: The standard deviation of the length of the prompt to generate.
+        expect_output_tokens: The number of tokens to expect in the output. This is used to
+        determine the length of the prompt. The prompt will be generated such that the output
+        will be approximately this many tokens.
+
+    Note:
+        tokens will be counted from the sonnet using the Llama tokenizer. Using one tokenizer
+        ensures a fairer comparison across different LLMs. For example, if gpt 3.5 tokenizes
+        a prompt in less tokens than Llama2, then this will be reflected in the results since
+        they will be fed identical prompts.
 
     Returns:
-        A tuple of the prompt and the length in tokens.
+        A tuple of the prompt and the length of the prompt.
     """
 
     get_token_length = lambda text: len(tokenizer.encode(text))
@@ -89,38 +89,34 @@ def randomly_sample_sonnet_lines_prompt(
         f"with {expect_output_tokens} output tokens. "
         "Don't generate eos tokens:\n\n"
     )
-    base_prompt_len = get_token_length(prompt)
-
-    num_prompt_tokens = sample_random_positive_int(prompt_tokens_mean, prompt_tokens_stddev)
-    while num_prompt_tokens < base_prompt_len:
-        num_prompt_tokens = sample_random_positive_int(prompt_tokens_mean, prompt_tokens_stddev)
-
-    remaining_prompt_tokens = num_prompt_tokens - base_prompt_len
+    # get a prompt length that is at least as long as the base
+    num_prompt_tokens = sample_random_positive_int(
+        prompt_tokens_mean, prompt_tokens_stddev
+    )
+    while num_prompt_tokens < get_token_length(prompt):
+        num_prompt_tokens = sample_random_positive_int(
+            prompt_tokens_mean, prompt_tokens_stddev
+        )
+    remaining_prompt_tokens = num_prompt_tokens - get_token_length(prompt)
     sonnet_path = pathlib.Path(__file__).parent.resolve() / "sonnet.txt"
-
-    try:
-        with open(sonnet_path, "r", encoding="utf-8") as f:
-            sonnet_lines = f.readlines()
-    except FileNotFoundError:
-        sonnet_lines = ["Shall I compare thee to a summer's day?",
-                        "Thou art more lovely and more temperate.",
-                        "Rough winds do shake the darling buds of May,"]
-
+    with open(sonnet_path, "r") as f:
+        sonnet_lines = f.readlines()
     random.shuffle(sonnet_lines)
-
-    while remaining_prompt_tokens > 0 and sonnet_lines:
-        line = sonnet_lines.pop()
-        line_tokens = get_token_length(line)
-        if line_tokens <= remaining_prompt_tokens:
-            prompt += line
-            remaining_prompt_tokens -= line_tokens
-        else:
-            # Если строка слишком длинная — обрежем её
-            approx_tokens = remaining_prompt_tokens
-            prompt += line[:int(approx_tokens)]  # грубая оценка
-            remaining_prompt_tokens = 0
-
+    sampling_lines = True
+    while sampling_lines:
+        for line in sonnet_lines:
+            line_to_add = line
+            if remaining_prompt_tokens - get_token_length(line_to_add) < 0:
+                # This will cut off a line in the middle of a word, but that's ok since an
+                # llm should be able to handle that.
+                line_to_add = line_to_add[: int(math.ceil(remaining_prompt_tokens))]
+                sampling_lines = False
+                prompt += line_to_add
+                break
+            prompt += line_to_add
+            remaining_prompt_tokens -= get_token_length(line_to_add)
     return (prompt, num_prompt_tokens)
+
 
 def sample_random_positive_int(mean: int, stddev: int) -> int:
     """Sample random numbers from a gaussian distribution until a positive number is sampled.
