@@ -83,8 +83,7 @@ def get_token_throughput_latencies(
         prompts.append(randomly_sample_sonnet_lines_prompt(
             prompt_tokens_mean=mean_input_tokens,
             prompt_tokens_stddev=stddev_input_tokens,
-            expect_output_tokens=num_output_tokens,
-            tokenizer=tokenizer
+            expect_output_tokens=num_output_tokens
         ))
     start_time = time.monotonic()
     pbar = tqdm(total=max_num_completed_requests)
