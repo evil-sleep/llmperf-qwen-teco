@@ -25,7 +25,9 @@ from llmperf.utils import (
 from tqdm import tqdm
 
 from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("./tokenizer")
+import pathlib
+tokenizer_path = pathlib.Path(__file__).parent / "llama-tokenizer"
+tokenizer = AutoTokenizer.from_pretrained(str(tokenizer_path.resolve()))
 
 def get_token_throughput_latencies(
     model: str,

@@ -62,7 +62,9 @@ def randomly_sample_sonnet_lines_prompt(
     expect_output_tokens: int = 150,
 ) -> Tuple[str, int]:
     
-    tokenizer = AutoTokenizer.from_pretrained("./tokenizer")
+    # Load tokenizer from local llama-tokenizer directory, robust to working directory
+    tokenizer_path = pathlib.Path(__file__).parent.parent.parent / "llama-tokenizer"
+    tokenizer = AutoTokenizer.from_pretrained(str(tokenizer_path.resolve()))
     """Generate a prompt that randomly samples lines from a the shakespeare sonnet at sonnet.txt.
 
     Args:
